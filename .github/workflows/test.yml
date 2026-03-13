@@ -1,0 +1,115 @@
+name: Test Action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-source-scan:
+    name: Test source scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Create test fixture
+        run: |
+          mkdir -p test-fixture
+          cat > test-fixture/package.json << 'FIXTURE'
+          {
+            "name": "test-fixture",
+            "version": "1.0.0",
+            "dependencies": {
+              "lodash": "4.17.21"
+            }
+          }
+          FIXTURE
+          cd test-fixture && npm install --package-lock-only
+
+      - name: Run source scan
+        id: source-scan
+        uses: ./
+        with:
+          scan-type: source
+          scan-target: ./test-fixture
+          sbom-filename: sbom-test-source.cdx.json
+          artifact-name: sbom-test-source
+          summary-title: "Test Source SBOM"
+
+      - name: Validate SBOM output
+        run: |
+          test -f sbom-test-source.cdx.json
+          jq -e '.bomFormat == "CycloneDX"' sbom-test-source.cdx.json
+          echo "Source SBOM is valid CycloneDX"
+
+      - name: Validate outputs
+        run: |
+          echo "vuln-count: ${{ steps.source-scan.outputs.vuln-count }}"
+          echo "critical-count: ${{ steps.source-scan.outputs.critical-count }}"
+          test -n "${{ steps.source-scan.outputs.vuln-count }}"
+
+  test-image-scan:
+    name: Test image scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run image scan
+        id: image-scan
+        uses: ./
+        with:
+          scan-type: image
+          scan-target: alpine:3.20
+          sbom-filename: sbom-test-image.cdx.json
+          artifact-name: sbom-test-image
+          summary-title: "Test Image SBOM"
+
+      - name: Validate SBOM output
+        run: |
+          test -f sbom-test-image.cdx.json
+          jq -e '.bomFormat == "CycloneDX"' sbom-test-image.cdx.json
+          echo "Image SBOM is valid CycloneDX"
+
+  test-fail-gate:
+    name: Test fail gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Create test fixture with known vulns
+        run: |
+          mkdir -p test-fixture-vuln
+          cat > test-fixture-vuln/package.json << 'FIXTURE'
+          {
+            "name": "test-fixture-vuln",
+            "version": "1.0.0",
+            "dependencies": {
+              "minimist": "0.0.8"
+            }
+          }
+          FIXTURE
+          cd test-fixture-vuln && npm install --package-lock-only
+
+      - name: Run scan with fail gate (expect failure due to critical vulns)
+        id: fail-gate
+        uses: ./
+        continue-on-error: true
+        with:
+          scan-type: source
+          scan-target: ./test-fixture-vuln
+          sbom-filename: sbom-test-vuln.cdx.json
+          artifact-name: sbom-test-vuln
+          summary-title: "Test Vuln SBOM"
+          grype-fail-on: low
+
+      - name: Verify fail gate triggered
+        run: |
+          if [ "${{ steps.fail-gate.outcome }}" != "failure" ]; then
+            echo "::error::Expected fail gate to trigger but outcome was '${{ steps.fail-gate.outcome }}'"
+            exit 1
+          fi
+          echo "Fail gate correctly triggered"

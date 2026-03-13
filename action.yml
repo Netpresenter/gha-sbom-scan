@@ -1,0 +1,119 @@
+name: 'SBOM Scan'
+description: 'Generate SBOM and scan for vulnerabilities. Supports source dirs, container images, Gradle projects, and CocoaPods.'
+
+inputs:
+  scan-type:
+    description: 'Type of scan: "source", "image", "gradle", or "cocoapods"'
+    required: true
+  scan-target:
+    description: 'Target to scan: directory path, registry reference, gradle project dir, or Podfile path'
+    required: true
+  sbom-filename:
+    description: 'Filename for the generated SBOM (e.g. sbom-source.cdx.json)'
+    required: true
+  artifact-name:
+    description: 'Name for the uploaded artifact'
+    required: true
+  summary-title:
+    description: 'Title for the step summary section'
+    required: true
+  grype-fail-on:
+    description: 'Fail on severity threshold: critical, high, medium, low, or empty string to disable'
+    required: false
+    default: ''
+  retention-days:
+    description: 'Artifact retention in days'
+    required: false
+    default: '90'
+
+outputs:
+  sbom-path:
+    description: 'Path to the generated SBOM file'
+    value: ${{ inputs.sbom-filename }}
+  vuln-count:
+    description: 'Total vulnerability count'
+    value: ${{ steps.summary.outputs.vuln-count }}
+  critical-count:
+    description: 'Critical vulnerability count'
+    value: ${{ steps.summary.outputs.critical-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Ensure dependencies
+      shell: bash
+      run: bash "${{ github.action_path }}/scripts/ensure-deps.sh"
+
+    - name: Install Syft
+      if: inputs.scan-type == 'source' || inputs.scan-type == 'image'
+      uses: anchore/sbom-action/download-syft@v0
+      id: syft
+
+    - name: Install Grype
+      uses: anchore/scan-action/download-grype@v7
+      id: grype
+
+    - name: Generate SBOM (source/image)
+      if: inputs.scan-type == 'source' || inputs.scan-type == 'image'
+      shell: bash
+      run: |
+        case "${{ inputs.scan-type }}" in
+          source) syft "dir:${{ inputs.scan-target }}" -o "cyclonedx-json=${{ inputs.sbom-filename }}" ;;
+          image)  syft "registry:${{ inputs.scan-target }}" -o "cyclonedx-json=${{ inputs.sbom-filename }}" ;;
+        esac
+
+    - name: Generate SBOM (gradle)
+      if: inputs.scan-type == 'gradle'
+      shell: bash
+      run: |
+        echo "Installing cdxgen..."
+        npm install -g @cyclonedx/cdxgen
+        echo "Running cdxgen on Gradle project: ${{ inputs.scan-target }}"
+        cdxgen -t gradle -o "${{ inputs.sbom-filename }}" "${{ inputs.scan-target }}"
+
+    - name: Generate SBOM (cocoapods)
+      if: inputs.scan-type == 'cocoapods'
+      shell: bash
+      run: |
+        echo "Installing cyclonedx-cocoapods..."
+        gem install cyclonedx-cocoapods
+
+        PODFILE_PATH="${{ inputs.scan-target }}"
+        PODFILE_DIR=$(dirname "$PODFILE_PATH")
+
+        echo "Running cyclonedx-cocoapods on: ${PODFILE_PATH}"
+        cd "$PODFILE_DIR"
+        cyclonedx-cocoapods -o "${{ github.workspace }}/${{ inputs.sbom-filename }}"
+
+    - name: Validate scan type
+      if: inputs.scan-type != 'source' && inputs.scan-type != 'image' && inputs.scan-type != 'gradle' && inputs.scan-type != 'cocoapods'
+      shell: bash
+      run: |
+        echo "::error::Invalid scan-type '${{ inputs.scan-type }}'. Must be 'source', 'image', 'gradle', or 'cocoapods'."
+        exit 1
+
+    - name: Upload SBOM artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.sbom-filename }}
+        retention-days: ${{ inputs.retention-days }}
+
+    - name: Scan with Grype
+      shell: bash
+      run: ${{ steps.grype.outputs.cmd }} "sbom:${{ inputs.sbom-filename }}" -o json > grype-results.json
+
+    - name: Generate summary and set outputs
+      id: summary
+      shell: bash
+      run: |
+        bash "${{ github.action_path }}/scripts/generate-summary.sh" \
+          "${{ inputs.sbom-filename }}" \
+          grype-results.json \
+          "${{ inputs.summary-title }}" \
+          "${{ inputs.grype-fail-on }}"
+
+    - name: Cleanup
+      if: always()
+      shell: bash
+      run: rm -f grype-results.json
