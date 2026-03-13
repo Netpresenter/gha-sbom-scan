@@ -101,7 +101,7 @@ runs:
 
     - name: Scan with Grype
       shell: bash
-      run: grype "sbom:${{ inputs.sbom-filename }}" -o json > grype-results.json
+      run: ${{ steps.grype.outputs.cmd }} "sbom:${{ inputs.sbom-filename }}" -o json > grype-results.json
 
     - name: Generate summary and set outputs
       id: summary
