@@ -94,12 +94,22 @@ jobs:
           FIXTURE
           cd test-fixture-vuln && npm install --package-lock-only
 
-      - name: Run scan with fail gate (should not fail on critical for this package)
+      - name: Run scan with fail gate (expect failure due to critical vulns)
+        id: fail-gate
         uses: ./
+        continue-on-error: true
         with:
           scan-type: source
           scan-target: ./test-fixture-vuln
           sbom-filename: sbom-test-vuln.cdx.json
           artifact-name: sbom-test-vuln
           summary-title: "Test Vuln SBOM"
-          grype-fail-on: critical
+          grype-fail-on: low
+
+      - name: Verify fail gate triggered
+        run: |
+          if [ "${{ steps.fail-gate.outcome }}" != "failure" ]; then
+            echo "::error::Expected fail gate to trigger but outcome was '${{ steps.fail-gate.outcome }}'"
+            exit 1
+          fi
+          echo "Fail gate correctly triggered"
