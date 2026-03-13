@@ -50,7 +50,7 @@ runs:
       id: syft
 
     - name: Install Grype
-      uses: anchore/scan-action/download-grype@v0
+      uses: anchore/scan-action/download-grype@v7
       id: grype
 
     - name: Generate SBOM (source/image)
