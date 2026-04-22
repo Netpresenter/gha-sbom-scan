@@ -69,7 +69,7 @@ runs:
         echo "Installing cdxgen..."
         npm install -g @cyclonedx/cdxgen
         echo "Running cdxgen on Gradle project: ${{ inputs.scan-target }}"
-        cdxgen -t gradle -o "${{ inputs.sbom-filename }}" "${{ inputs.scan-target }}"
+        cdxgen --spec-version 1.6 -t gradle -o "${{ inputs.sbom-filename }}" "${{ inputs.scan-target }}"
 
     - name: Generate SBOM (cocoapods)
       if: inputs.scan-type == 'cocoapods'
