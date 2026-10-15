@@ -9,7 +9,7 @@ on:
 jobs:
   test-source-scan:
     name: Test source scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -52,7 +52,7 @@ jobs:
 
   test-image-scan:
     name: Test image scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -75,7 +75,7 @@ jobs:
 
   test-fail-gate:
     name: Test fail gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
